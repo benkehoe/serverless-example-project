@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+boto3 = "*"
+aws-error-utils = "*"
+aws-lambda-api-event-utils = {extras = ["jsonschema"], version = "*"}
+aws-encryption-sdk = "*"
+aws-embedded-metrics = "*"
+
+[dev-packages]
+pytest = "*"
+black = "*"
+
+[requires]
+python_version = "3.9"
