@@ -1,0 +1,219 @@
+# Copyright 2023 Ben Kehoe
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    CodeUri: ./src
+    Runtime: python3.9
+    MemorySize: 512
+
+Outputs:
+  TableName:
+    Value: !Ref Table
+  
+  ApiUrl:
+    Value: !Sub https://${Api.RestApiId}.execute-api.${AWS::Region}.amazonaws.com/live
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  PaginationKey:
+    Type: AWS::KMS::Key
+    Properties:
+      KeyPolicy: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Id": "EnableIAM",
+          "Statement": [{
+            "Sid": "Enable IAM principal policies",
+            "Effect": "Allow",
+            "Principal": {"AWS": "arn:aws:iam::${AWS::AccountId}:root"},
+            "Action": "kms:*",
+            "Resource": "*"
+          }]
+        }
+
+  CreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: create_function.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt Table.Arn
+  
+  CreateFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CreateFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/items/create"
+
+  ReadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: read_function.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !GetAtt Table.Arn
+  
+  ReadFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ReadFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/items/get/*"
+
+  UpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: update_function.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt Table.Arn
+
+  UpdateFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref UpdateFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/items/update/*"
+
+  DeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: delete_function.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource:
+                - !GetAtt Table.Arn
+
+  DeleteFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DeleteFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/items/delete/*"
+
+  ListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: list_function.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          PAGINATION_KEY_ARN: !GetAtt PaginationKey.Arn
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !GetAtt Table.Arn
+            - Effect: Allow
+              Action:
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:GenerateDataKey
+              Resource:
+                - !GetAtt PaginationKey.Arn
+
+  ListFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ListFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/GET/items/list"
+
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: live
+      EndpointConfiguration:
+        Type: REGIONAL
+      Variables:
+        accountId: !Ref AWS::AccountId
+        region: !Ref AWS::Region
+        createFunction: !Ref CreateFunction
+        readFunction: !Ref ReadFunction
+        updateFunction: !Ref UpdateFunction
+        deleteFunction: !Ref DeleteFunction
+        listFunction: !Ref ListFunction
+      # DefinitionUri: ./api-spec.yaml
+      DefinitionBody:
+        'Fn::Transform':
+            Name: 'AWS::Include'
+            Parameters:
+              Location: ./api-spec.yaml
+      
