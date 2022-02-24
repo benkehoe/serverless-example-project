@@ -51,6 +51,15 @@ def item_filter(item):
 def handler(event, context):
     pagination_token = (event.get("queryStringParameters") or {}).get("NextToken")
 
+    pagination_token_encryption_context = {
+        # Ensure that a token issued for one user can't be used by another user.
+        # Customize this to use the appropriate identity field for your authorizer.
+        "user": ((event.get("requestContext") or {}).get("identity") or {}).get("user") or "",
+        # Ensure that a token issued for one resource type / path can't be used for
+        # another resource type.
+        "path": event.get("path") or "",
+    }
+
     exclusive_start_key = None
     if pagination_token:
 
@@ -58,6 +67,7 @@ def handler(event, context):
             pagination_token,
             require_encrypted=ENCRYPT_PAGINATION_TOKENS,
             encryption_client=ENCRYPTION_CLIENT,
+            encryption_context=pagination_token_encryption_context,
         )
 
     try:
@@ -78,6 +88,7 @@ def handler(event, context):
             last_evaluated_key,
             encrypted=ENCRYPT_PAGINATION_TOKENS,
             encryption_client=ENCRYPTION_CLIENT,
+            encryption_context=pagination_token_encryption_context,
         )
 
     return response

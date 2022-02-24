@@ -36,17 +36,19 @@ class EncryptionClient:
     cache: aws_encryption_sdk.caches.base.CryptoMaterialsCache
     materials_manager: aws_encryption_sdk.materials_managers.base.CryptoMaterialsManager
 
-    def encrypt(self, plaintext: Union[str, bytes]) -> bytes:
+    def encrypt(self, plaintext: Union[str, bytes], encryption_context: Union[None, dict]=None) -> bytes:
         ciphertext, header = self.client.encrypt(
             source=plaintext,
             materials_manager=self.materials_manager,
+            encryption_context=encryption_context,
         )
         return ciphertext
 
-    def decrypt(self, ciphertext: Union[str, bytes]) -> bytes:
+    def decrypt(self, ciphertext: Union[str, bytes], encryption_context: Union[None, dict]=None) -> bytes:
         plaintext, header = self.client.decrypt(
             source=ciphertext,
             materials_manager=self.materials_manager,
+            encryption_context=encryption_context,
         )
         return plaintext
 
@@ -94,20 +96,28 @@ def _encode_plaintext_pagination_token(last_evaluated_key: dict) -> str:
 
 
 def _decode_encrypted_pagination_token(
-    encryption_client: EncryptionClient, pagination_token: str
+    encryption_client: EncryptionClient,
+    pagination_token: str,
+    encryption_context: Union[None, dict] = None,
 ) -> dict:
     pagination_token_bytes = base64.urlsafe_b64decode(pagination_token)
-    decrypted_pagination_token = encryption_client.decrypt(pagination_token_bytes)
+    decrypted_pagination_token = encryption_client.decrypt(
+        pagination_token_bytes,
+        encryption_context=encryption_context
+    )
     parsed_pagination_token = json.loads(decrypted_pagination_token)
     return parsed_pagination_token
 
 
 def _encode_encrypted_pagination_token(
-    encryption_client: EncryptionClient, last_evaluated_key: dict
+    encryption_client: EncryptionClient,
+    last_evaluated_key: dict,
+    encryption_context: Union[None, dict] = None,
 ) -> str:
     serialized_last_evaluated_key = json.dumps(last_evaluated_key)
     encrypted_pagination_token_bytes = encryption_client.encrypt(
-        serialized_last_evaluated_key
+        serialized_last_evaluated_key,
+        encryption_context=encryption_context,
     )
     pagination_token_bytes = base64.urlsafe_b64encode(encrypted_pagination_token_bytes)
     pagination_token = str(pagination_token_bytes, "ascii")
@@ -118,6 +128,7 @@ def decode_pagination_token(
     pagination_token: str,
     require_encrypted: bool,
     encryption_client: EncryptionClient = None,
+    encryption_context: Union[None, dict] = None,
 ) -> dict:
     parts = pagination_token.split("-", 1)
     if len(parts) == 1:
@@ -139,7 +150,7 @@ def decode_pagination_token(
             )
         try:
             return _decode_encrypted_pagination_token(
-                encryption_client, pagination_token
+                encryption_client, pagination_token, encryption_context
             )
         except Exception as e:
             raise PaginationTokenError(internal_message=f"{type(e).__name__}: {str(e)}")
@@ -148,13 +159,16 @@ def decode_pagination_token(
 
 
 def encode_pagination_token(
-    pagination_token: str, encrypted: bool, encryption_client: EncryptionClient = None
+    pagination_token: str,
+    encrypted: bool,
+    encryption_client: EncryptionClient = None,
+    encryption_context: Union[None, dict] = None,
 ) -> str:
     if encrypted and not encryption_client:
         raise ValueError("Can't encrypt pagination token without an EncryptionClient.")
     if encrypted:
         return "2-" + _encode_encrypted_pagination_token(
-            encryption_client, pagination_token
+            encryption_client, pagination_token, encryption_context
         )
     else:
         return "1-" + _encode_plaintext_pagination_token(pagination_token)
