@@ -25,6 +25,7 @@ from common.pagination import (
     encode_pagination_token,
     decode_pagination_token,
 )
+from common.event_utils import pagination_token_encryption_context_for_event
 
 print("initializing")
 
@@ -51,14 +52,7 @@ def item_filter(item):
 def handler(event, context):
     pagination_token = (event.get("queryStringParameters") or {}).get("NextToken")
 
-    pagination_token_encryption_context = {
-        # Ensure that a token issued for one user can't be used by another user.
-        # Customize this to use the appropriate identity field for your authorizer.
-        "user": ((event.get("requestContext") or {}).get("identity") or {}).get("user") or "",
-        # Ensure that a token issued for one resource type / path can't be used for
-        # another resource type.
-        "path": event.get("path") or "",
-    }
+    pagination_token_encryption_context = pagination_token_encryption_context_for_event(event)
 
     exclusive_start_key = None
     if pagination_token:
