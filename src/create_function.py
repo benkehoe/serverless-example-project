@@ -17,7 +17,7 @@ from http import HTTPStatus
 import boto3
 
 import aws_lambda_api_event_utils as api_utils
-from aws_error_utils import errors
+from aws_error_utils import errors, catch_aws_error
 
 from common.identifiers import get_name_key
 
@@ -49,7 +49,11 @@ def handler(event, context):
 
     try:
         TABLE_RESOURCE.put_item(Item=item)
-    except (errors.ProvisionedThroughputExceededException, errors.RequestLimitExceeded):
-        api_utils.APIErrorResponse.re_raise_as(HTTPStatus.SERVICE_UNAVAILABLE)
+    except catch_aws_error(
+        "ProvisionedThroughputExceededException", "RequestLimitExceeded"
+    ):
+        raise api_utils.APIErrorResponse.from_status_code(
+            HTTPStatus.SERVICE_UNAVAILABLE
+        )
 
     return {"Item": payload}

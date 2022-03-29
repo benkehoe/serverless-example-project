@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 import base64
 import json
-from typing import Union, Optional
+from typing import Union, Optional, Any
 
 import boto3
 import aws_encryption_sdk
@@ -78,16 +78,18 @@ def get_encryption_client(
     )
 
 
-def _decode_plaintext_pagination_token(pagination_token: str) -> dict:
+def _decode_plaintext_pagination_token(pagination_token: str) -> Any:
     pagination_token_bytes = base64.urlsafe_b64decode(pagination_token)
     parsed_pagination_token = json.loads(pagination_token_bytes)
     return parsed_pagination_token
 
 
-def _encode_plaintext_pagination_token(last_evaluated_key: dict) -> str:
-    serialized_last_evaluated_key = json.dumps(last_evaluated_key)
+def _encode_plaintext_pagination_token(pagination_token_data: Any) -> str:
+    serialized_pagination_token_data = json.dumps(
+        pagination_token_data, sort_keys=True, ensure_ascii=True
+    )
     pagination_token_bytes = base64.urlsafe_b64encode(
-        serialized_last_evaluated_key.encode("ascii")
+        serialized_pagination_token_data.encode("ascii")
     )
     pagination_token = str(pagination_token_bytes, "ascii")
     return pagination_token
@@ -95,7 +97,7 @@ def _encode_plaintext_pagination_token(last_evaluated_key: dict) -> str:
 
 def _decode_encrypted_pagination_token(
     encryption_client: EncryptionClient, pagination_token: str
-) -> dict:
+) -> Any:
     pagination_token_bytes = base64.urlsafe_b64decode(pagination_token)
     decrypted_pagination_token = encryption_client.decrypt(pagination_token_bytes)
     parsed_pagination_token = json.loads(decrypted_pagination_token)
@@ -103,11 +105,13 @@ def _decode_encrypted_pagination_token(
 
 
 def _encode_encrypted_pagination_token(
-    encryption_client: EncryptionClient, last_evaluated_key: dict
+    encryption_client: EncryptionClient, pagination_token_data: Any
 ) -> str:
-    serialized_last_evaluated_key = json.dumps(last_evaluated_key)
+    serialized_pagination_token_data = json.dumps(
+        pagination_token_data, sort_keys=True, ensure_ascii=True
+    )
     encrypted_pagination_token_bytes = encryption_client.encrypt(
-        serialized_last_evaluated_key
+        serialized_pagination_token_data
     )
     pagination_token_bytes = base64.urlsafe_b64encode(encrypted_pagination_token_bytes)
     pagination_token = str(pagination_token_bytes, "ascii")
@@ -118,7 +122,7 @@ def decode_pagination_token(
     pagination_token: str,
     require_encrypted: bool,
     encryption_client: EncryptionClient = None,
-) -> dict:
+) -> Any:
     parts = pagination_token.split("-", 1)
     if len(parts) == 1:
         raise PaginationTokenError(internal_message=f"No version ID.")
@@ -148,7 +152,7 @@ def decode_pagination_token(
 
 
 def encode_pagination_token(
-    pagination_token: str, encrypted: bool, encryption_client: EncryptionClient = None
+    pagination_token: Any, encrypted: bool, encryption_client: EncryptionClient = None
 ) -> str:
     if encrypted and not encryption_client:
         raise ValueError("Can't encrypt pagination token without an EncryptionClient.")

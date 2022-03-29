@@ -17,7 +17,7 @@ from http import HTTPStatus
 import boto3
 
 import aws_lambda_api_event_utils as api_utils
-from aws_error_utils import errors, ClientError
+from aws_error_utils import errors, ClientError, catch_aws_error
 
 from common.identifiers import get_name_key, unquote
 
@@ -43,8 +43,12 @@ def handler(event, context):
         if "Item" not in response:
             raise api_utils.APIErrorResponse.from_status_code(HTTPStatus.NOT_FOUND)
         item = response["Item"]
-    except (errors.ProvisionedThroughputExceededException, errors.RequestLimitExceeded):
-        api_utils.APIErrorResponse.re_raise_as(HTTPStatus.SERVICE_UNAVAILABLE)
+    except catch_aws_error(
+        "ProvisionedThroughputExceededException", "RequestLimitExceeded"
+    ):
+        raise api_utils.APIErrorResponse.from_status_code(
+            HTTPStatus.SERVICE_UNAVAILABLE
+        )
 
     item.pop("pk")
     item.pop("sk")
