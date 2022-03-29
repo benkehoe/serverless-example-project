@@ -13,24 +13,32 @@
 
 import os
 from http import HTTPStatus
+from datetime import timedelta
 
 import boto3
 
 import aws_lambda_api_event_utils as api_utils
-from aws_error_utils import errors, ClientError
+from aws_error_utils import errors, catch_aws_error, ClientError
 
 from common.identifiers import parse_key
 from common.pagination import (
     get_encryption_client,
     encode_pagination_token,
     decode_pagination_token,
+    pagination_token_context_from_event,
 )
-from common.event_utils import pagination_token_encryption_context_for_event
 
 print("initializing")
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 PAGINATION_KEY_ARN = os.environ["PAGINATION_KEY_ARN"]
+
+PAGINATION_TOKEN_VALIDITY_DURATION = timedelta(minutes=5)
+if "PAGINATION_TOKEN_VALIDITY_DURATION_SECONDS" in os.environ:
+    # fail loudly if we can't parse the duration
+    PAGINATION_TOKEN_VALIDITY_DURATION = timedelta(
+        seconds=float(os.environ["PAGINATION_TOKEN_VALIDITY_DURATION_SECONDS"])
+    )
 
 SESSION = boto3.Session()
 TABLE_RESOURCE = SESSION.resource("dynamodb").Table(TABLE_NAME)
@@ -52,16 +60,17 @@ def item_filter(item):
 def handler(event, context):
     pagination_token = (event.get("queryStringParameters") or {}).get("NextToken")
 
-    pagination_token_encryption_context = pagination_token_encryption_context_for_event(event)
+    pagination_token_context = (
+        pagination_token_context_from_event(event, duration=PAGINATION_TOKEN_VALIDITY_DURATION)
+    )
 
     exclusive_start_key = None
     if pagination_token:
-
         exclusive_start_key = decode_pagination_token(
             pagination_token,
+            context=pagination_token_context,
             require_encrypted=ENCRYPT_PAGINATION_TOKENS,
             encryption_client=ENCRYPTION_CLIENT,
-            encryption_context=pagination_token_encryption_context,
         )
 
     try:
@@ -71,7 +80,9 @@ def handler(event, context):
         response = TABLE_RESOURCE.scan(**scan_args)
         items = response.get("Items") or []
         last_evaluated_key = response.get("LastEvaluatedKey")
-    except (errors.ProvisionedThroughputExceededException, errors.RequestLimitExceeded):
+    except catch_aws_error(
+        "ProvisionedThroughputExceededException", "RequestLimitExceeded"
+    ):
         api_utils.APIErrorResponse.re_raise_as(HTTPStatus.SERVICE_UNAVAILABLE)
 
     items = list(filter(item_filter, items))
@@ -80,9 +91,9 @@ def handler(event, context):
     if last_evaluated_key:
         response["NextToken"] = encode_pagination_token(
             last_evaluated_key,
+            context=pagination_token_context,
             encrypted=ENCRYPT_PAGINATION_TOKENS,
             encryption_client=ENCRYPTION_CLIENT,
-            encryption_context=pagination_token_encryption_context,
         )
 
     return response
