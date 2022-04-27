@@ -37,7 +37,7 @@ class PaginationTokenContext:
     to require that token cannot be reused across contexts."""
     context: dict
     expiration: datetime
-    DISABLE_PAGINATION_CONTEXT_STRICT_VALIATION_ENV_KEY: ClassVar[
+    DISABLE_PAGINATION_CONTEXT_STRICT_VALIDATION_ENV_KEY: ClassVar[
         str
     ] = "DISABLE_PAGINATION_CONTEXT_STRICT_VALIATION"
 
