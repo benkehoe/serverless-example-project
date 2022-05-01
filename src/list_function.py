@@ -22,11 +22,11 @@ from aws_error_utils import errors, catch_aws_error, ClientError
 
 from common.identifiers import parse_key
 from common.pagination import (
-    get_encryption_client,
     encode_pagination_token,
     decode_pagination_token,
     pagination_token_context_from_event,
 )
+from common.encryption import get_encryption_client
 from common.timedelta_iso import fromisoformat
 
 print("initializing")
