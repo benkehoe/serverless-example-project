@@ -27,6 +27,7 @@ from common.pagination import (
     decode_pagination_token,
     pagination_token_context_from_event,
 )
+from common.timedelta_iso import fromisoformat
 
 print("initializing")
 
@@ -34,10 +35,10 @@ TABLE_NAME = os.environ["TABLE_NAME"]
 PAGINATION_KEY_ARN = os.environ["PAGINATION_KEY_ARN"]
 
 PAGINATION_TOKEN_VALIDITY_DURATION = timedelta(minutes=5)
-if "PAGINATION_TOKEN_VALIDITY_DURATION_SECONDS" in os.environ:
+if "PAGINATION_TOKEN_VALIDITY_DURATION" in os.environ:
     # fail loudly if we can't parse the duration
-    PAGINATION_TOKEN_VALIDITY_DURATION = timedelta(
-        seconds=float(os.environ["PAGINATION_TOKEN_VALIDITY_DURATION_SECONDS"])
+    PAGINATION_TOKEN_VALIDITY_DURATION = fromisoformat(
+        os.environ["PAGINATION_TOKEN_VALIDITY_DURATION"]
     )
 
 SESSION = boto3.Session()

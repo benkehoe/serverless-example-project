@@ -121,6 +121,9 @@ Resources:
         Variables:
           TABLE_NAME: !Ref Table
           PAGINATION_KEY_ARN: !GetAtt PaginationKey.Arn
+          # Pagination tokens are valid for 5 minutes. Duration is specified
+          # using ISO8601 duration format (PnDTnHnMnS or PnW).
+          PAGINATION_TOKEN_VALIDITY_DURATION: PT5M
       Policies:
         - Version: "2012-10-17"
           Statement:
