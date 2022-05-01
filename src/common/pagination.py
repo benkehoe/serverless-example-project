@@ -39,7 +39,7 @@ class PaginationTokenContext:
     expiration: datetime
     DISABLE_PAGINATION_CONTEXT_STRICT_VALIDATION_ENV_KEY: ClassVar[
         str
-    ] = "DISABLE_PAGINATION_CONTEXT_STRICT_VALIATION"
+    ] = "DISABLE_PAGINATION_CONTEXT_STRICT_VALIDATION"
 
     def __post_init__(self):
         if "tok" in self.context:
@@ -73,7 +73,7 @@ class PaginationTokenContext:
             return token
 
         disable_strict_validation = os.environ.get(
-            self.DISABLE_PAGINATION_CONTEXT_STRICT_VALIATION_ENV_KEY, ""
+            self.DISABLE_PAGINATION_CONTEXT_STRICT_VALIDATION_ENV_KEY, ""
         ).lower() in ["true", "1"]
 
         now = datetime.now(timezone.utc)
@@ -155,8 +155,8 @@ def _decode_encrypted_pagination_token(
         pagination_token_bytes,
     )
     parsed_pagination_token_data = json.loads(decrypted_pagination_token)
-    pagination_token = context.load(parsed_pagination_token_data)
-    return pagination_token
+    validated_pagination_token_data = context.load(parsed_pagination_token_data)
+    return validated_pagination_token_data
 
 
 def _encode_encrypted_pagination_token(
@@ -210,7 +210,7 @@ def decode_pagination_token(
 
 
 def encode_pagination_token(
-    pagination_token: str,
+    pagination_token_data: str,
     *,
     encrypted: bool,
     context: PaginationTokenContext,
@@ -221,10 +221,10 @@ def encode_pagination_token(
     if encrypted:
         return "2-" + _encode_encrypted_pagination_token(
             encryption_client=encryption_client,
-            pagination_token=pagination_token,
+            pagination_token_data=pagination_token_data,
             context=context,
         )
     else:
         return "1-" + _encode_plaintext_pagination_token(
-            pagination_token=pagination_token, context=context
+            pagination_token_data=pagination_token_data, context=context
         )
