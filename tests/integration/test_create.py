@@ -31,6 +31,7 @@ def test_create_and_get(config: Config, caller: Caller):
         key: value,
     }
     response = caller.call(path="/items/create", method="POST", body=item)
+    response.raise_for_status()
     response_json = response.json()
     assert "Item" in response_json
     response_item = response_json["Item"]
@@ -42,6 +43,7 @@ def test_create_and_get(config: Config, caller: Caller):
     assert "sk" not in response_item
 
     response = caller.call(path=f"/items/get/{name}", method="GET")
+    response.raise_for_status()
     response_json = response.json()
     assert "Item" in response_json
     response_item = response_json["Item"]
@@ -62,6 +64,7 @@ def test_create_and_list(config: Config, caller: Caller):
         key: value,
     }
     response = caller.call(path="/items/create", method="POST", body=item)
+    response.raise_for_status()
     response_json = response.json()
     assert "Item" in response_json
     response_item = response_json["Item"]
@@ -73,18 +76,22 @@ def test_create_and_list(config: Config, caller: Caller):
     assert "sk" not in response_item
 
     for response in caller.paginate(
-        path=f"/items/get/{name}", method="GET", pagination_key="NextToken"
+        path=f"/items/list", method="GET", pagination_key="NextToken"
     ):
+        response.raise_for_status()
         response_json = response.json()
-        assert "Item" in response_json
-        response_item = response_json["Item"]
-        assert "pk" not in response_item
-        assert "sk" not in response_item
-        assert "Name" in response_item
-        if response_item["Name"] == name:
-            assert key in response_item
-            assert response_item[key] == value
-            break
+        assert "Items" in response_json
+        for response_item in response_json["Items"]:
+            assert "pk" not in response_item
+            assert "sk" not in response_item
+            assert "Name" in response_item
+            if response_item["Name"] == name:
+                assert key in response_item
+                assert response_item[key] == value
+                break
+        else:
+            continue
+        break
     else:
         assert False, f"List did not return item {name}"
 

@@ -114,11 +114,15 @@ class Caller:
         body=None,
         headers: dict = None,
     ):
+        if params is None:
+            params = {}
         response = self.call(
             path=path, method=method, params=params, body=body, headers=headers
         )
         yield response
         while pagination_key in response.json():
+            next_token = response.json()[pagination_key]
+            params[pagination_key] = next_token
             response = self.call(
                 path=path, method=method, params=params, body=body, headers=headers
             )

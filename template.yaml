@@ -171,6 +171,7 @@ Resources:
         Variables:
           TABLE_NAME: !Ref Table
           PAGINATION_KEY_ARN: !GetAtt PaginationKey.Arn
+          ENCRYPT_PAGINATION_TOKENS: "true"
       Policies:
         - Version: "2012-10-17"
           Statement:

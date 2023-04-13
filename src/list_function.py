@@ -13,6 +13,7 @@
 
 import os
 from http import HTTPStatus
+from datetime import timedelta
 
 import boto3
 
@@ -20,22 +21,41 @@ import aws_lambda_api_event_utils as api_utils
 from aws_error_utils import errors, ClientError
 
 from common.identifiers import parse_key
+from common.encryption import get_encryption_client
 from common.pagination import (
-    get_encryption_client,
-    encode_pagination_token,
-    decode_pagination_token,
+    PaginationTokenContext,
+    PaginationToken,
+    PaginationTokenEncoder,
+    PaginationTokenDecoder,
 )
+from common import event_utils
+from common.timedelta_iso import fromisoformat
 
-print("initializing")
+# TODO: set up proper logging
+api_utils.APIErrorResponse.DECORATOR_LOGGER = lambda s, m: print(m.replace("\n", "\r"))
+api_utils.APIErrorResponse.DECORATOR_LOGGER_TRACEBACK = True
 
 TABLE_NAME = os.environ["TABLE_NAME"]
 PAGINATION_KEY_ARN = os.environ["PAGINATION_KEY_ARN"]
+
+ENCRYPT_PAGINATION_TOKENS = os.environ["ENCRYPT_PAGINATION_TOKENS"].lower() in [
+    "1",
+    "true",
+]
+DISABLE_PAGINATION_TOKEN_CONTEXT_VALIDATION = os.environ.get(
+    "DISABLE_PAGINATION_TOKEN_CONTEXT_VALIDATION", ""
+).lower() in ["1", "true"]
+PAGINATION_TOKEN_MAX_AGE = fromisoformat(
+    os.environ.get("PAGINATION_TOKEN_MAX_AGE") or "PT5M"
+)
+
+# force pagination for now
+PAGINATION_MAX_ITEMS = int(os.environ.get("PAGINATION_MAX_ITEMS", "2"))
 
 SESSION = boto3.Session()
 TABLE_RESOURCE = SESSION.resource("dynamodb").Table(TABLE_NAME)
 
 ENCRYPTION_CLIENT = get_encryption_client(SESSION, PAGINATION_KEY_ARN)
-ENCRYPT_PAGINATION_TOKENS = True
 
 
 def item_filter(item):
@@ -47,20 +67,53 @@ def item_filter(item):
     return True
 
 
+def get_pagination_token_context_kv(event) -> dict:
+    context = {}
+
+    # Ensure that a token issued for one user can't be used by another user.
+    caller_identity = event_utils.get_caller_identity(event)
+    if caller_identity:
+        context["cid"] = caller_identity
+
+    # Ensure that tokens issued for one API can't be used in another API
+    api_id = event_utils.get_api_id(event)
+    if api_id:
+        context["api"] = api_id
+
+    # Ensure that a token issued for one resource type / path can't be used for
+    # another resource type.
+    path = event_utils.get_path(event)
+    if path:
+        context["pat"] = path
+
+    return context
+
+
 @api_utils.api_event_handler
 def handler(event, context):
-    pagination_token = (event.get("queryStringParameters") or {}).get("NextToken")
+    encoded_pagination_token = (event.get("queryStringParameters") or {}).get(
+        "NextToken"
+    )
+
+    pagination_token_context = PaginationTokenContext(
+        version="1", context_kv=get_pagination_token_context_kv(event)
+    )
 
     exclusive_start_key = None
-    if pagination_token:
-        exclusive_start_key = decode_pagination_token(
-            pagination_token,
+    if encoded_pagination_token:
+        # TODO: hash and log the token for tracking
+        pagination_token = PaginationTokenDecoder(
+            encoded_pagination_token=encoded_pagination_token,
+            pagination_token_context=pagination_token_context,
             require_encrypted=ENCRYPT_PAGINATION_TOKENS,
+            disable_context_validation=DISABLE_PAGINATION_TOKEN_CONTEXT_VALIDATION,
+            max_age=PAGINATION_TOKEN_MAX_AGE,
             encryption_client=ENCRYPTION_CLIENT,
-        )
+        ).decode()
+        exclusive_start_key = pagination_token.value
 
     try:
-        scan_args = {"Limit": 2}  # TODO: remove this
+        scan_args = {"Limit": PAGINATION_MAX_ITEMS}  # TODO: allow user value
         if exclusive_start_key:
             scan_args["ExclusiveStartKey"] = exclusive_start_key
         response = TABLE_RESOURCE.scan(**scan_args)
@@ -76,10 +129,15 @@ def handler(event, context):
 
     response = {"Items": items}
     if last_evaluated_key:
-        response["NextToken"] = encode_pagination_token(
-            last_evaluated_key,
+        next_token = PaginationTokenEncoder(
+            pagination_token=PaginationToken(
+                context=pagination_token_context,
+                value=last_evaluated_key,
+            ),
             encrypted=ENCRYPT_PAGINATION_TOKENS,
             encryption_client=ENCRYPTION_CLIENT,
-        )
+        ).encode()
+        # TODO: hash and log the token for tracking
+        response["NextToken"] = next_token
 
     return response

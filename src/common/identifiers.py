@@ -19,6 +19,8 @@ base32hex preserves ordering
 trigraph separator: https://gist.github.com/benkehoe/4ab771a689c05ed64b122cdd96ed1b12
 """
 
+# TODO: this is probably under-typed
+
 
 def quote(s: str) -> str:
     return urllib.parse.quote_plus(s)
